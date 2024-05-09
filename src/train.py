@@ -3,6 +3,9 @@ from torch.utils.data import Dataset, DataLoader
 from osgeo import gdal
 import numpy as np
 import torch.nn as nn
+import os
+import glob
+from tqdm import tqdm
 
 class RSDataset(Dataset):
     def __init__(self, images_dir, labels_dir):
@@ -83,15 +86,43 @@ if __name__ == '__main__':
     
     dataset_path = "E:/data/data_building/"
     
-    images_dir = [dataset_path + 'data/2_95_sat.tif', dataset_path + 'data/2_96_sat.tif',  dataset_path + 'data/2_97_sat.tif', 
-                 dataset_path + 'data/2_98_sat.tif', dataset_path + 'data/2_976_sat.tif']
-    labels_dir =[dataset_path + 'data/2_95_mask.tif', dataset_path + 'data/2_96_mask.tif',  dataset_path + 'data/2_97_mask.tif', 
-                 dataset_path + 'data/2_98_mask.tif', dataset_path +'data/2_976_mask.tif']
-
-    dataset = RSDataset(images_dir, labels_dir)
-    train_loader = DataLoader(dataset, batch_size=2, shuffle=True)
+    image_dir = "E:/data/data_building/rs_data/train/image/"
+    label_dir = "E:/data/data_building/rs_data/train/label/"
     
-    model = UNet(3, 1)
+    tif_files = glob.glob(image_dir + '/*.tif')
+    label_files = glob.glob(label_dir + '/*.tif')
+    
+    # images_dir = [dataset_path + 'data/2_95_sat.tif', dataset_path + 'data/2_96_sat.tif',  dataset_path + 'data/2_97_sat.tif', 
+    #              dataset_path + 'data/2_98_sat.tif', dataset_path + 'data/2_976_sat.tif']
+    # labels_dir =[dataset_path + 'data/2_95_mask.tif', dataset_path + 'data/2_96_mask.tif',  dataset_path + 'data/2_97_mask.tif', 
+    #              dataset_path + 'data/2_98_mask.tif', dataset_path +'data/2_976_mask.tif']
+    
+    #print("Reading TIFF Files")
+    tif_progress_bar = tqdm(total=len(tif_files), desc="Processing TIFF Files")
+    label_progress_bar = tqdm(total=len(label_files), desc="Processing Label Files")
+    
+    
+    tif_paths = []
+    label_paths = []
+    for tif_file in tqdm(tif_files):
+        tif_full_path = os.path.join(image_dir, tif_file)
+        tif_paths.append(tif_full_path)
+        tif_progress_bar.update(1)
+    
+    tif_progress_bar.close()
+    
+    for label_file in tqdm(label_files):
+        label_full_path = os.path.join(image_dir, label_file)
+        label_paths.append(label_full_path)
+        label_progress_bar.update(1)
+    
+    label_progress_bar.close()
+        
+        
+    dataset = RSDataset(tif_paths, label_paths)
+    train_loader = DataLoader(dataset, batch_size=2, shuffle=True)
+     
+    model = UNet(3, 1).cuda()
     
     criterion = nn.BCELoss()
     
@@ -100,9 +131,12 @@ if __name__ == '__main__':
     num_epochs = 50
     
     for epoch in range(num_epochs):
+        processed_files = 0
+        train_progress_bar = tqdm(total=len(train_loader), desc=f'Epoch {epoch + 1} / {num_epochs}')
+        
         for i, (images, labels) in enumerate(train_loader):
-            images = images.float()
-            labels = labels.float() / 255.0
+            images = images.float().cuda()
+            labels = labels.float().cuda() / 255.0
             labels = labels.squeeze(0)
             outputs = model(images)
             loss = criterion(outputs, labels)
@@ -110,6 +144,11 @@ if __name__ == '__main__':
             loss.backward()
             optimizer.step()
             
+            train_progress_bar.update(1)
+            train_progress_bar.set_postfix({'Loss': loss.item()})
+        
+        train_progress_bar.close()
+         
         print('Epoch [{}/{}], Loss: {:.4f}'.format(epoch + 1, num_epochs, loss.item()))   
         
     torch.save(model.state_dict(), 'model.pth')
